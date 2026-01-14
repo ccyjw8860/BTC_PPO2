@@ -81,7 +81,7 @@ class VolumeFeatureCalculator:
         # df = self._calculate_cvd_feature(df)
 
         # Robust Scaling 적용 (3개 특성만)
-        df = self._apply_robust_scaling(df)
+        # df = self._apply_robust_scaling(df)
 
         # 생성된 특성 개수 확인
         # volume_features = ['feat_vol', 'feat_oi', 'feat_cvd']
