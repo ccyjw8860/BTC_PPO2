@@ -16,3 +16,4 @@ class DBClass:
         self.BTCUSDTP_input = self.CoinDB['BTCUSDT.P_input']
         self.BTCUSDTP_5Min_Aggregated = self.CoinDB['BTCUSDTP_5Min_Aggregated']
         self.BTCUSDTP_input2 = self.CoinDB['BTCUSDT.P_input2']
+        self.BTCUSDTP_input3 = self.CoinDB['BTCUSDT.P_input3']

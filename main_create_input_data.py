@@ -1,10 +1,10 @@
 """
-Feature Pipeline for BTCUSDT.P Trading Data (Phase 7: NO Threshold Calculation)
+Feature Pipeline for BTCUSDT.P Trading Data (Phase 8: NO Threshold & NO Robust Scaling)
 
 Main entry point for computing 59 features:
-- 16 Price features (EMA-based with windows 5, 20, 40, 60, 120)
-- 3 Volume features (vol, oi, cvd)
-- 40 Histogram features (from BTCUSDTP_5Min_Aggregated collection, NO robust scaling)
+- 16 Price features (EMA-based with windows 5, 20, 40, 60, 120) - RAW
+- 3 Volume features (vol, oi, cvd) - RAW
+- 40 Histogram features (from BTCUSDTP_5Min_Aggregated collection) - RAW
 """
 
 from datetime import datetime
@@ -32,32 +32,27 @@ logger = logging.getLogger(__name__)
 
 def main():
     """
-    메인 실행 함수 (Phase 7: NO Threshold Calculation)
+    메인 실행 함수 (Phase 8: NO Threshold & NO Robust Scaling)
 
     2022-06-01부터 2025-10-31까지의 데이터를 처리하여
-    59개 특성을 계산하고 BTCUSDT.P_input2 컬렉션에 저장합니다.
+    59개 특성(Raw Data)을 계산하고 BTCUSDT.P_input2 컬렉션에 저장합니다.
 
     Features (59 total):
-    - 16 Price Features: OHLC (4), EMA (10), BB (2) with Robust Scaling
-    - 3 Volume Features: vol, oi, cvd with Robust Scaling
-    - 40 Histogram Features: from BTCUSDTP_5Min_Aggregated (NO robust scaling)
+    - 16 Price Features: OHLC (4), EMA (10), BB (2) - RAW (No Scaling)
+    - 3 Volume Features: vol, oi, cvd - RAW (No Scaling)
+    - 40 Histogram Features: from BTCUSDTP_5Min_Aggregated - RAW (No Scaling)
 
-    Phase 7 Changes:
-    - Target collection: BTCUSDT.P_input → BTCUSDT.P_input2
-    - Old collection BTCUSDT.P_input is preserved (NOT dropped)
-    - NO threshold calculation (removed in Phase 6)
+    Phase 8 Changes:
+    - Robust Scaling REMOVED entirely (Raw data passed to VecNormalize in RL)
+    - Threshold calculation REMOVED (inherited from Phase 6)
+    - Target collection: BTCUSDT.P_input2 (Cleaned and repopulated)
 
     환경 변수:
     - USE_PARALLEL: 병렬 처리 활성화 (true/false, 기본값: false)
     - MAX_WORKERS: 병렬 프로세스 수 (기본값: CPU 코어 수)
-
-    사용 예시:
-    - 순차 처리 (기본): python main_create_input_data.py
-    - 병렬 처리: set USE_PARALLEL=true && python main_create_input_data.py
-    - 워커 수 지정: set MAX_WORKERS=2 && python main_create_input_data.py
     """
     logger.info("=" * 80)
-    logger.info("Feature Pipeline Version 3 계산 시작 (Phase 7: NO Threshold)")
+    logger.info("Feature Pipeline Version 3.1 계산 시작 (Phase 8: NO Robust Scaling)")
     logger.info("=" * 80)
     try:
         # DB 연결
@@ -65,24 +60,24 @@ def main():
         db = DBClass()
         logger.info(f"소스 컬렉션: {db.BTCUSDTP_5MinCollection.name}")
         logger.info(f"히스토그램 컬렉션: {db.BTCUSDTP_5Min_Aggregated.name}")
-        logger.info(f"타겟 컬렉션: BTCUSDT.P_input2 (NEW - Phase 7)")
-        logger.info(f"보존 컬렉션: {db.BTCUSDTP_input.name} (구 버전 보존)")
+        logger.info(f"타겟 컬렉션: BTCUSDT.P_input2 (Raw Data)")
 
-        # Phase 7: BTCUSDT.P_input2 컬렉션만 삭제 (구 컬렉션은 보존)
+        # Phase 8: BTCUSDT.P_input2 컬렉션 초기화
         logger.info("")
-        logger.info("Phase 7: BTCUSDT.P_input2 컬렉션 삭제 중 (clean slate)...")
-        logger.info("  ※ BTCUSDT.P_input 컬렉션은 보존됩니다 (backward compatibility)")
+        logger.info("Phase 8: BTCUSDT.P_input2 컬렉션 초기화 (Drop & Re-create)...")
+        logger.info("  ※ Robust Scaling이 제거된 Raw Data로 다시 채웁니다.")
         db.BTCUSDTP_input2.drop()
         logger.info("✓ BTCUSDT.P_input2 컬렉션 삭제 완료")
         logger.info("")
 
         # BatchProcessor 생성
+        # min_iqr 등의 파라미터는 내부적으로 무시되도록 Calculator 수정 필요
         processor = BatchProcessor(
-            db=db,                                         # Database instance
-            source_collection=db.BTCUSDTP_5MinCollection,  # Source: BTCUSDT.P_5Min
-            target_collection=db.BTCUSDTP_input2,          # Target: BTCUSDT.P_input2 (Phase 7)
-            aggregated_collection=db.BTCUSDTP_5Min_Aggregated,  # Histogram source (Phase 5)
-            batch_size=1000                                # 1000 operations per bulk_write
+            db=db,
+            source_collection=db.BTCUSDTP_5MinCollection,
+            target_collection=db.BTCUSDTP_input3,
+            aggregated_collection=db.BTCUSDTP_5Min_Aggregated,
+            batch_size=1000
         )
 
         # 처리 기간 설정
@@ -92,19 +87,14 @@ def main():
         logger.info(f"처리 기간: {start_date} ~ {end_date}")
         logger.info(f"Batch Size: 1000 operations")
         logger.info(f"Warm-up Period: 2141 candles (~7.4 days)")
-        logger.info(f"Feature Version 3 적용: 59 features (16 Price + 3 Volume + 40 Histogram)")
-        logger.info(f"  Phase 6: Threshold 계산 제거됨 (NO whale_buy_vol, whale_sell_vol)")
-        logger.info(f"  Phase 4: MA → EMA 변환 (windows: 5, 20, 40, 60, 120)")
-        logger.info(f"  Phase 3: Whale ratio 특성 제거됨 (5 → 3 volume features)")
-        logger.info(f"  Phase 5: Histogram 특성 BTCUSDTP_5Min_Aggregated에서 가져옴 (NO robust scaling)")
-        logger.info(f"  - Price/Volume Robust Scaling (19 features, min_iqr=0.001, shift(1))")
-        logger.info(f"  - Histogram Raw Values (40 features, range [0.0, 1.0])")
-        logger.info(f"  - Stationary CVD (rolling window=2016)")
-        logger.info(f"  - ATR-normalized EMA slopes")
+        logger.info(f"Feature Config: 59 features (ALL RAW DATA)")
+        logger.info(f"  - Price Features (16): EMA slopes normalized by ATR, but NO Robust Scaling")
+        logger.info(f"  - Volume Features (3): Log1p/OI/CVD calculated, but NO Robust Scaling")
+        logger.info(f"  - Histogram Features (40): Raw values from aggregated collection")
+        logger.info(f"  ※ 중요: Robust Scaling은 강화학습 단계의 VecNormalize가 담당합니다.")
         logger.info("")
 
-        # 병렬 처리 설정 (환경 변수)
-        # MongoDB collection 객체 pickle 문제로 인해 기본값을 false로 설정
+        # 병렬 처리 설정
         use_parallel = os.getenv('USE_PARALLEL', 'false').lower() == 'true'
         max_workers = int(os.getenv('MAX_WORKERS', str(os.cpu_count() or 4)))
 
@@ -123,11 +113,9 @@ def main():
 
         # 결과 출력
         logger.info("=" * 80)
-        logger.info(f"✅ 처리 완료! (Phase 7)")
-        logger.info(f"총 {total_saved:,}개의 feature 문서가 BTCUSDT.P_input2에 저장되었습니다.")
-        logger.info(f"  - 각 문서: 59 features (16 price + 3 volume + 40 histogram)")
+        logger.info(f"✅ 처리 완료! (Phase 8)")
+        logger.info(f"총 {total_saved:,}개의 Raw Feature 문서가 BTCUSDT.P_input2에 저장되었습니다.")
         logger.info(f"  - Document ID 형식: input_YYYYMMDDHHmm")
-        logger.info(f"  - 구 컬렉션 BTCUSDT.P_input은 보존되었습니다.")
         logger.info("=" * 80)
 
         return 0

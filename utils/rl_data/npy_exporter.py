@@ -30,7 +30,7 @@ class NpyExporter:
         self.db = db
         self.batch_size = batch_size
         # 요구사항 1: BTCUSDTP_input2 컬렉션 사용
-        self.input_collection = db.BTCUSDTP_input2 
+        self.input_collection = db.BTCUSDTP_input3 
         self.price_collection = db.BTCUSDTP_5MinCollection
         logger.info(f"NpyExporter v3 초기화 (Target: {self.input_collection.name}, batch_size={batch_size})")
 
