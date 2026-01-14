@@ -182,3 +182,8 @@ cython_debug/
 secret.json
 db/mongoConnect.py
 data
+checkpoints
+checkpoints2
+checkpoints3
+checkpoints_CNN
+tensorboard_log
