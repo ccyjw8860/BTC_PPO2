@@ -187,3 +187,8 @@ checkpoints2
 checkpoints3
 checkpoints_CNN
 tensorboard_log
+*.csv
+datetime.json
+*.zip
+*.png
+*.pkl

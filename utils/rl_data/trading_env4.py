@@ -61,7 +61,8 @@ class TradingEnv(gym.Env):
         time_penalty_pips: float = 0.02,
         initial_balance: float = 10000.0,
         max_episode_steps: int = 2048,  # 🟢 [추가] 에피소드 길이 제한
-        allow_flip: bool = False,       
+        allow_flip: bool = False,
+        scaling_factor: float = 100.0,       
         mode: str = 'train'
     ):
         super().__init__()
@@ -79,6 +80,7 @@ class TradingEnv(gym.Env):
 
         self.pip_value = float(pip_value)
         self.lot_size = float(lot_size)
+        self.scaling_factor = float(scaling_factor)
         
         # Costs
         self.spread_pips = float(spread_pips)
@@ -282,6 +284,8 @@ class TradingEnv(gym.Env):
             state_seq, _, _ = self.data_generator.get_sequence(self.current_index)
         except IndexError:
             state_seq = np.zeros((self.window_size, self.base_num_features))
+
+        state_seq = state_seq * self.scaling_factor
 
         pos_feat = float(self.position)
         time_feat = float(self.time_in_trade) / 100.0

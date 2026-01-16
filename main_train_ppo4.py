@@ -57,30 +57,83 @@ class TensorboardCallback(BaseCallback):
 # -----------------------------------------------------------------------------
 class CustomEvalCallback(BaseCallback):
     """
-    주기적으로 Test 환경에서 모델을 평가하고, Final Equity를 TensorBoard에 기록하는 콜백
+    평가 환경에서 모델을 테스트하고, Equity 등 커스텀 지표를 기록하며
+    [추가됨] '최종 자산(Final Equity)'이 가장 높을 때 모델을 저장합니다.
     """
-    def __init__(self, eval_env, eval_freq=10000, deterministic=True, verbose=1):
-        super().__init__(verbose)
+    def __init__(self, eval_env, check_freq: int, log_dir: str, 
+                 n_eval_episodes: int = 5, 
+                 best_model_save_path: str = None,  # 🟢 [추가] 저장 경로 인자
+                 verbose=1):
+        super(CustomEvalCallback, self).__init__(verbose)
         self.eval_env = eval_env
-        self.eval_freq = eval_freq
-        self.deterministic = deterministic
+        self.check_freq = check_freq
+        self.log_dir = log_dir
+        self.n_eval_episodes = n_eval_episodes
+        
+        # 🟢 [추가] Best Model 저장을 위한 변수
+        self.best_model_save_path = best_model_save_path
+        self.best_mean_equity = -np.inf
+        
+        # 텐서보드 로거가 없을 때를 대비한 리스트 (선택사항)
+        self.evaluations_equity = []
+
+    def _init_callback(self) -> None:
+        if self.best_model_save_path is not None:
+            os.makedirs(self.best_model_save_path, exist_ok=True)
 
     def _on_step(self) -> bool:
-        # eval_freq 주기마다 평가 수행
-        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
-            # evaluate_model 함수를 재사용하여 평가 수행
-            # (eval_env는 VecNormalize가 적용된 상태여야 함)
-            equity_curve, final_equity = evaluate_model(self.model, self.eval_env, self.deterministic)
+        if self.n_calls % self.check_freq == 0:
+            total_equity = 0.0
+            valid_episodes = 0
             
-            # TensorBoard 기록 (eval 탭에 표시됨)
-            self.logger.record("eval/final_equity_usd", final_equity)
-            self.logger.record("eval/log_final_equity", np.log(max(final_equity, 1e-6)))
+            # --- 평가 루프 ---
+            for _ in range(self.n_eval_episodes):
+                obs = self.eval_env.reset()
+                done = False
+                while not done:
+                    action, _ = self.model.predict(obs, deterministic=True)
+                    obs, reward, done, infos = self.eval_env.step(action)
+                    
+                    if done:
+                        info = infos[0]
+                        # 자산 정보 추출
+                        current_equity = 0.0
+                        if 'equity_usd' in info:
+                            current_equity = info['equity_usd']
+                        elif 'terminal_observation' in info and 'equity_usd' in info.get('terminal_info', {}):
+                            current_equity = info['terminal_info']['equity_usd']
+                        
+                        total_equity += current_equity
+                        valid_episodes += 1
             
-            # 콘솔 출력
-            if self.verbose > 0:
-                print(f"[CustomEval] Step {self.num_timesteps}: Final Equity = ${final_equity:,.2f}")
+            # --- 결과 기록 및 저장 ---
+            if valid_episodes > 0:
+                mean_equity = total_equity / valid_episodes
                 
+                # Tensorboard 기록
+                self.logger.record("eval/mean_equity_usd", mean_equity)
+                
+                if self.verbose > 0:
+                    print(f"Eval at step {self.num_timesteps}: Mean Equity = ${mean_equity:,.2f}")
+
+                # 🟢 [핵심] Best Equity 갱신 시 모델 저장
+                if self.best_model_save_path is not None:
+                    if mean_equity > self.best_mean_equity:
+                        if self.verbose > 0:
+                            print(f"New Best Model! (Equity: ${self.best_mean_equity:,.2f} -> ${mean_equity:,.2f})")
+                        
+                        self.best_mean_equity = mean_equity
+                        
+                        # 파일명: best_model_equity.zip
+                        save_file_path = os.path.join(self.best_model_save_path, "best_model_equity")
+                        self.model.save(save_file_path)
+                        
+                    # 현재 Best 스코어도 기록해두면 좋음
+                    self.logger.record("eval/best_equity_usd", self.best_mean_equity)
+
         return True
+
+
 
 # -----------------------------------------------------------------------------
 # Environment Factory
@@ -182,7 +235,7 @@ def main():
     
     # [중요] VecNormalize: 입력 정규화 + 보상 정규화 (학습용)
     # Raw Data가 들어오므로 clip_obs를 넉넉하게 설정
-    train_env = VecNormalize(train_vec_env, norm_obs=True, norm_reward=True, clip_obs=100.0)
+    train_env = VecNormalize(train_vec_env, norm_obs=False, norm_reward=True, clip_obs=100.0)
 
     # 테스트용: 단일 환경 (검증용)
     # EvalCallback에서 사용할 환경
@@ -200,7 +253,7 @@ def main():
     # 테스트 환경은 학습 환경의 통계(mean, var)를 공유받지 않고 시작하되, 
     # 실제 평가 시에는 로드된 통계를 덮어씌울 예정입니다.
     # 여기서는 일단 초기화합니다.
-    test_env = VecNormalize(test_vec_env, norm_obs=True, norm_reward=False, clip_obs=100.0, training=False)
+    test_env = VecNormalize(test_vec_env, norm_obs=False, norm_reward=False, clip_obs=100.0, training=False)
 
     print("Environment setup complete with VecNormalize.")
 
@@ -242,6 +295,7 @@ def main():
         name_prefix="btc_ppo",
         save_vecnormalize=True   # 정규화 통계 저장 필수!
     )
+
     
     # 2. TensorboardCallback: 학습 로그(Train Equity) 기록
     tb_callback = TensorboardCallback()
@@ -250,8 +304,10 @@ def main():
     # 체크포인트 저장 주기와 맞춰서 5만 스텝마다 평가 수행
     eval_callback = CustomEvalCallback(
         eval_env=test_env,
-        eval_freq=100_000 // NUM_ENVS, 
-        deterministic=True,
+        check_freq=20000,           # 20,000 스텝마다 평가
+        log_dir="./tensorboard_log/",
+        n_eval_episodes=5,          # 5판 평균
+        best_model_save_path=ckpt_dir, # 🟢 여기에 경로를 주면 알아서 저장함
         verbose=1
     )
     

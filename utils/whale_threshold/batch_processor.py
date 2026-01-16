@@ -27,6 +27,25 @@ if sys.platform == 'win32':
 
 logger = logging.getLogger(__name__)
 
+# 🟢 [추가] 데이터 반전 헬퍼 함수
+def invert_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    OHLC 데이터를 역수(1/Price)로 반전시킵니다.
+    """
+    df_inv = df.copy()
+    
+    # 1. 가격 반전 (Open, Close)
+    df_inv['open'] = 1.0 / df['open']
+    df_inv['close'] = 1.0 / df['close']
+    
+    # 2. High/Low 스왑 반전 (중요: 1/Low가 High가 됨)
+    df_inv['high'] = 1.0 / df['low']
+    df_inv['low'] = 1.0 / df['high']
+    
+    # Volume이나 Histogram 등은 크기 정보이므로 그대로 둡니다.
+    # (엄밀하게는 Buy/Sell 성격이 반대가 되지만, RL 데이터 증강용으로는 이 정도도 충분합니다)
+    
+    return df_inv
 
 # Phase 3.1 & Phase 6: Pure function for parallelization (module-level, picklable)
 # Phase 6: Removed threshold calculation logic
